@@ -437,17 +437,6 @@ label {
     font-size: .8rem;
 }
 
-.badge {
-    display: inline-block;
-    padding: 5px 9px;
-    border-radius: 8px;
-    background: rgba(230,43,30,.12);
-    border: 1px solid rgba(230,43,30,.25);
-    color: #ff6b61;
-    font-size: .72rem;
-    font-weight: 700;
-}
-
 .wa-button {
     display: inline-flex;
     align-items: center;
@@ -466,22 +455,6 @@ label {
     background: rgba(37,211,102,.16);
 }
 
-.registration-card {
-    background: rgba(255,255,255,.025);
-    border: 1px solid rgba(255,255,255,.07);
-    border-radius: 18px;
-    padding: 14px;
-    margin-bottom: 10px;
-}
-
-.registration-photo {
-    width: 65px;
-    height: 65px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid rgba(230,43,30,.45);
-}
-
 .small-text {
     color: #777;
     font-size: .72rem;
@@ -493,32 +466,25 @@ label {
 }
 
 @media (max-width: 700px) {
-
     .block-container {
         padding: 1rem !important;
     }
-
     .glass {
         padding: 20px 16px;
         border-radius: 22px;
     }
-
     .timer-grid {
         gap: 6px;
     }
-
     .timer-box {
         padding: 11px 4px;
     }
-
     .timer-number {
         font-size: 1.15rem;
     }
-
     .hero-title {
         font-size: 2.1rem;
     }
-
 }
 
 </style>
@@ -550,42 +516,10 @@ if "login_error" not in st.session_state:
 
 
 # =========================================================
-# HEADER
-# =========================================================
-
-def render_logo():
-    if os.path.exists(LOGO_PATH):
-        return f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" class="logo">'
-    return """
-    <div style="
-        width:105px;
-        height:105px;
-        border-radius:50%;
-        background:#111;
-        border:2px solid #e62b1e;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        font-size:28px;
-        font-weight:800;
-        color:#e62b1e;
-    ">TEDx</div>
-    """
-
-
-def get_base64_image(path):
-    import base64
-
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
-
-# =========================================================
 # COUNTDOWN
 # =========================================================
 
 def render_countdown():
-
     deadline = get_deadline()
     now = datetime.now()
 
@@ -601,27 +535,22 @@ def render_countdown():
 
     st.markdown(f"""
     <div class="timer-grid">
-
         <div class="timer-box">
             <div class="timer-number">{days:02d}</div>
             <div class="timer-label">Jours</div>
         </div>
-
         <div class="timer-box">
             <div class="timer-number">{hours:02d}</div>
             <div class="timer-label">Heures</div>
         </div>
-
         <div class="timer-box">
             <div class="timer-number">{minutes:02d}</div>
             <div class="timer-label">Min</div>
         </div>
-
         <div class="timer-box">
             <div class="timer-number">{secs:02d}</div>
             <div class="timer-label">Sec</div>
         </div>
-
     </div>
     """, unsafe_allow_html=True)
 
@@ -631,31 +560,25 @@ def render_countdown():
 # =========================================================
 
 def registration_page():
-
     st.markdown('<div class="glass">', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-
         if os.path.exists(LOGO_PATH):
             st.image(LOGO_PATH, width=105)
 
         st.markdown("""
         <div style="text-align:center">
-
             <div class="hero-title">
                 TED<span class="hero-red">x</span> B'DARIJA
             </div>
-
             <div class="hero-sub">
                 انضموا إلينا هذا العام!
             </div>
-
             <div class="muted">
                 Ideas Worth Spreading
             </div>
-
         </div>
         """, unsafe_allow_html=True)
 
@@ -678,7 +601,6 @@ def registration_page():
     """, unsafe_allow_html=True)
 
     with st.form("registration_form", clear_on_submit=False):
-
         name = st.text_input(
             "Nom et Prénom",
             placeholder="Votre nom complet"
@@ -716,12 +638,7 @@ def registration_page():
 
         photo = st.file_uploader(
             "Photo — Visage clair",
-            type=[
-                "jpg",
-                "jpeg",
-                "png",
-                "webp"
-            ],
+            type=["jpg", "jpeg", "png", "webp"],
             help="Photo claire du visage. Maximum 3 MB."
         )
 
@@ -730,60 +647,31 @@ def registration_page():
         )
 
         if submitted:
-
             normalized = normalize_moroccan_phone(phone)
 
             if not name.strip():
                 st.error("Veuillez entrer votre nom.")
-
             elif not normalized:
-                st.error(
-                    "Veuillez entrer un numéro marocain valide."
-                )
-
+                st.error("Veuillez entrer un numéro marocain valide.")
             elif not major.strip():
                 st.error("Veuillez entrer votre filière.")
-
             elif year == "Choisir...":
                 st.error("Veuillez choisir votre année.")
-
             elif photo is None:
                 st.error("Veuillez ajouter votre photo.")
-
             elif photo.size > 3 * 1024 * 1024:
-                st.error(
-                    "La photo est trop volumineuse. Maximum 3 MB."
-                )
-
+                st.error("La photo est trop volumineuse. Maximum 3 MB.")
             elif datetime.now() >= get_deadline():
-                st.error(
-                    "Les inscriptions sont terminées."
-                )
-
+                st.error("Les inscriptions sont terminées.")
             else:
-
                 try:
-
-                    extension = os.path.splitext(
-                        photo.name
-                    )[1].lower()
-
+                    extension = os.path.splitext(photo.name)[1].lower()
                     filename = (
-                        datetime.now().strftime(
-                            "%Y%m%d_%H%M%S_%f"
-                        )
-                        + extension
+                        datetime.now().strftime("%Y%m%d_%H%M%S_%f") + extension
                     )
+                    photo_path = os.path.join(UPLOAD_DIR, filename)
 
-                    photo_path = os.path.join(
-                        UPLOAD_DIR,
-                        filename
-                    )
-
-                    with open(
-                        photo_path,
-                        "wb"
-                    ) as f:
+                    with open(photo_path, "wb") as f:
                         f.write(photo.getbuffer())
 
                     add_registration(
@@ -794,28 +682,18 @@ def registration_page():
                         photo_path
                     )
 
-                    st.success(
-                        "Votre inscription a été enregistrée avec succès !"
-                    )
-
+                    st.success("Votre inscription a été enregistrée avec succès !")
                     st.balloons()
-
                     st.session_state.success = True
 
                 except Exception as e:
-
-                    st.error(
-                        f"Erreur lors de l'inscription : {e}"
-                    )
+                    st.error(f"Erreur lors de l'inscription : {e}")
 
     st.markdown('</div>', unsafe_allow_html=True)
-
     st.markdown("")
 
     st.markdown(
-        '<div style="text-align:center;color:#333;">'
-        'TEDx B\'DARIJA'
-        '</div>',
+        '<div style="text-align:center;color:#333;">TEDx B\'DARIJA</div>',
         unsafe_allow_html=True
     )
 
@@ -824,23 +702,11 @@ def registration_page():
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-
-        st.markdown(
-            '<div class="admin-btn">',
-            unsafe_allow_html=True
-        )
-
-        if st.button(
-            "🔒 Accès Administration",
-            key="open_admin"
-        ):
+        st.markdown('<div class="admin-btn">', unsafe_allow_html=True)
+        if st.button("🔒 Accès Administration", key="open_admin"):
             st.session_state.page = "login"
             st.rerun()
-
-        st.markdown(
-            '</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # =========================================================
@@ -848,13 +714,11 @@ def registration_page():
 # =========================================================
 
 def login_page():
-
     st.markdown('<div class="glass">', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-
         if os.path.exists(LOGO_PATH):
             st.image(LOGO_PATH, width=90)
 
@@ -873,38 +737,27 @@ def login_page():
         )
 
         with st.form("login_form"):
-
             email = st.text_input(
                 "Email",
                 placeholder="Email administrateur"
             )
-
             password = st.text_input(
                 "Mot de passe",
                 type="password",
                 placeholder="Mot de passe"
             )
-
-            submitted = st.form_submit_button(
-                "Connexion"
-            )
+            submitted = st.form_submit_button("Connexion")
 
             if submitted:
-
                 if (
-                    email.strip().lower()
-                    == ADMIN_EMAIL.lower()
-                    and password
-                    == ADMIN_PASSWORD
+                    email.strip().lower() == ADMIN_EMAIL.lower()
+                    and password == ADMIN_PASSWORD
                 ):
-
                     st.session_state.admin_logged = True
                     st.session_state.page = "admin"
                     st.session_state.login_error = False
                     st.rerun()
-
                 else:
-
                     st.session_state.login_error = True
 
         if st.session_state.login_error:
@@ -912,9 +765,7 @@ def login_page():
 
         st.markdown("")
 
-        if st.button(
-            "← Retour à l'inscription"
-        ):
+        if st.button("← Retour à l'inscription"):
             st.session_state.page = "registration"
             st.session_state.login_error = False
             st.rerun()
@@ -927,74 +778,50 @@ def login_page():
 # =========================================================
 
 def admin_dashboard():
-
     if not st.session_state.admin_logged:
         st.session_state.page = "login"
         st.rerun()
 
     registrations = get_registrations()
-
     total = len(registrations)
-
     majors = set(
         r["major"].strip().lower()
         for r in registrations
         if r["major"]
     )
-
     last_registration = (
         registrations[0]["created_at"]
         if registrations
         else None
     )
-
     deadline = get_deadline()
-
-    # -----------------------------------------------------
-    # HEADER
-    # -----------------------------------------------------
 
     st.markdown('<div class="glass">', unsafe_allow_html=True)
 
     header1, header2 = st.columns([2, 1])
 
     with header1:
-
         if os.path.exists(LOGO_PATH):
             st.image(LOGO_PATH, width=62)
 
         st.markdown("""
         <div class="admin-header">
-
             <div>
-                <div style="
-                    font-size:1.6rem;
-                    font-weight:800;
-                ">
+                <div style="font-size:1.6rem; font-weight:800;">
                     Dashboard Admin
                 </div>
-
                 <div class="admin-status">
                     ● Base de données locale active
                 </div>
             </div>
-
         </div>
         """, unsafe_allow_html=True)
 
     with header2:
-
-        if st.button(
-            "🚪 Quitter",
-            key="logout"
-        ):
+        if st.button("🚪 Quitter", key="logout"):
             st.session_state.admin_logged = False
             st.session_state.page = "registration"
             st.rerun()
-
-    # -----------------------------------------------------
-    # STATS
-    # -----------------------------------------------------
 
     st.markdown("")
 
@@ -1017,14 +844,9 @@ def admin_dashboard():
         """, unsafe_allow_html=True)
 
     with c3:
-
         if last_registration:
             try:
-                dt = datetime.fromisoformat(
-                    last_registration
-                ).strftime(
-                    "%d/%m/%Y %H:%M"
-                )
+                dt = datetime.fromisoformat(last_registration).strftime("%d/%m/%Y %H:%M")
             except Exception:
                 dt = "—"
         else:
@@ -1032,230 +854,111 @@ def admin_dashboard():
 
         st.markdown(f"""
         <div class="stat-card">
-            <div class="stat-label">
-                Dernière inscription
-            </div>
-            <div style="
-                font-size:.9rem;
-                font-weight:700;
-                margin-top:13px;
-            ">
+            <div class="stat-label">Dernière inscription</div>
+            <div style="font-size:.9rem; font-weight:700; margin-top:13px;">
                 {dt}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
     with c4:
-
         st.markdown(f"""
         <div class="stat-card">
             <div class="stat-label">Deadline</div>
-            <div style="
-                color:#ff6258;
-                font-size:.9rem;
-                font-weight:700;
-                margin-top:13px;
-            ">
+            <div style="color:#ff6258; font-size:.9rem; font-weight:700; margin-top:13px;">
                 {deadline.strftime("%d/%m/%Y %H:%M")}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    # -----------------------------------------------------
-    # DEADLINE
-    # -----------------------------------------------------
-
     st.markdown("")
 
-    with st.expander(
-        "⚙️ Modifier la deadline",
-        expanded=False
-    ):
+    with st.expander("⚙️ Modifier la deadline", expanded=False):
+        new_date = st.date_input("Date", value=deadline.date(), key="deadline_date")
+        new_time = st.time_input("Heure", value=deadline.time().replace(second=0, microsecond=0), key="deadline_time")
 
-        new_date = st.date_input(
-            "Date",
-            value=deadline.date(),
-            key="deadline_date"
-        )
-
-        new_time = st.time_input(
-            "Heure",
-            value=deadline.time().replace(second=0, microsecond=0),
-            key="deadline_time"
-        )
-
-        if st.button(
-            "Enregistrer la deadline",
-            key="save_deadline"
-        ):
-
-            new_deadline = datetime.combine(
-                new_date,
-                new_time
-            )
-
+        if st.button("Enregistrer la deadline", key="save_deadline"):
+            new_deadline = datetime.combine(new_date, new_time)
             if new_deadline <= datetime.now():
-                st.error(
-                    "La deadline doit être dans le futur."
-                )
+                st.error("La deadline doit être dans le futur.")
             else:
-
                 save_deadline(new_deadline)
-
-                st.success(
-                    "Deadline mise à jour avec succès."
-                )
-
+                st.success("Deadline mise à jour avec succès.")
                 st.rerun()
-
-    # -----------------------------------------------------
-    # ACTIONS
-    # -----------------------------------------------------
 
     st.markdown("")
 
     action1, action2, action3 = st.columns(3)
 
     with action1:
-        if st.button(
-            "🔄 Actualiser",
-            key="refresh_admin"
-        ):
+        if st.button("🔄 Actualiser", key="refresh_admin"):
             st.rerun()
 
     with action2:
-
         csv_data = create_csv(registrations)
-
         st.download_button(
             "📥 Exporter CSV",
             data=csv_data,
-            file_name=(
-                "tedx-bdarija-inscriptions-"
-                + datetime.now().strftime("%Y-%m-%d")
-                + ".csv"
-            ),
+            file_name="tedx-bdarija-inscriptions-" + datetime.now().strftime("%Y-%m-%d") + ".csv",
             mime="text/csv",
             key="export_csv"
         )
 
     with action3:
-
-        if st.button(
-            "🗑️ Vider toutes les inscriptions",
-            key="clear_all"
-        ):
-
+        if st.button("🗑️ Vider toutes les inscriptions", key="clear_all"):
             st.session_state.confirm_clear = True
 
-    if st.session_state.get(
-        "confirm_clear",
-        False
-    ):
-
-        st.warning(
-            "Cette action supprimera toutes les inscriptions."
-        )
-
+    if st.session_state.get("confirm_clear", False):
+        st.warning("Cette action supprimera toutes les inscriptions.")
         confirm1, confirm2 = st.columns(2)
 
         with confirm1:
-
-            if st.button(
-                "Oui, supprimer tout",
-                key="confirm_delete"
-            ):
-
+            if st.button("Oui, supprimer tout", key="confirm_delete"):
                 conn = get_connection()
-
-                rows = conn.execute(
-                    "SELECT photo_path FROM registrations"
-                ).fetchall()
-
+                rows = conn.execute("SELECT photo_path FROM registrations").fetchall()
                 for row in rows:
                     if row["photo_path"]:
                         try:
-                            if os.path.exists(
-                                row["photo_path"]
-                            ):
-                                os.remove(
-                                    row["photo_path"]
-                                )
+                            if os.path.exists(row["photo_path"]):
+                                os.remove(row["photo_path"])
                         except Exception:
                             pass
-
-                conn.execute(
-                    "DELETE FROM registrations"
-                )
-
+                conn.execute("DELETE FROM registrations")
                 conn.commit()
                 conn.close()
-
                 st.session_state.confirm_clear = False
-
-                st.success(
-                    "Toutes les inscriptions ont été supprimées."
-                )
-
+                st.success("Toutes les inscriptions ont été supprimées.")
                 st.rerun()
 
         with confirm2:
-
-            if st.button(
-                "Annuler",
-                key="cancel_delete"
-            ):
+            if st.button("Annuler", key="cancel_delete"):
                 st.session_state.confirm_clear = False
                 st.rerun()
 
-    # -----------------------------------------------------
-    # SEARCH
-    # -----------------------------------------------------
-
     st.markdown("")
 
-    search = st.text_input(
-        "🔎 Rechercher",
-        placeholder="Nom, WhatsApp, filière..."
-    )
-
+    search = st.text_input("🔎 Rechercher", placeholder="Nom, WhatsApp, filière...")
     filtered = []
 
     for row in registrations:
-
         if not search.strip():
             filtered.append(row)
             continue
-
         q = search.lower()
-
         combined = " ".join([
             str(row["name"] or ""),
             str(row["phone"] or ""),
             str(row["major"] or ""),
             str(row["year"] or "")
         ]).lower()
-
         if q in combined:
             filtered.append(row)
 
-    # -----------------------------------------------------
-    # REGISTRATIONS
-    # -----------------------------------------------------
-
     st.markdown(
         f"""
-        <div style="
-            margin-top:20px;
-            margin-bottom:15px;
-            font-size:1.25rem;
-            font-weight:800;
-        ">
+        <div style="margin-top:20px; margin-bottom:15px; font-size:1.25rem; font-weight:800;">
             Participants
-            <span style="
-                color:#e62b1e;
-                font-size:.9rem;
-            ">
+            <span style="color:#e62b1e; font-size:.9rem;">
                 {len(filtered)}
             </span>
         </div>
@@ -1264,13 +967,9 @@ def admin_dashboard():
     )
 
     if not filtered:
-
-        st.info(
-            "Aucune inscription pour le moment."
-        )
+        st.info("Aucune inscription pour le moment.")
 
     for row in filtered:
-
         registration_card(row)
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -1281,33 +980,14 @@ def admin_dashboard():
 # =========================================================
 
 def registration_card(row):
-
     photo_path = row["photo_path"]
-
-    left, middle, right = st.columns(
-        [0.8, 3, 1.2]
-    )
+    left, middle, right = st.columns([0.8, 3, 1.2])
 
     with left:
-
-        if (
-            photo_path
-            and os.path.exists(photo_path)
-        ):
-
-            st.image(
-                photo_path,
-                width=65
-            )
-
+        if photo_path and os.path.exists(photo_path):
+            st.image(photo_path, width=65)
         else:
-
-            initials = (
-                row["name"][:1]
-                if row["name"]
-                else "?"
-            )
-
+            initials = row["name"][:1] if row["name"] else "?"
             st.markdown(
                 f"""
                 <div style="
@@ -1330,19 +1010,16 @@ def registration_card(row):
             )
 
     with middle:
-
         st.markdown(
             f"""
             <div class="name-text">
                 {html.escape(row["name"])}
             </div>
-
             <div class="small-text">
                 {html.escape(row["major"])}
                 •
                 {html.escape(row["year"])}
             </div>
-
             <div class="small-text" style="margin-top:5px;">
                 📱 {html.escape(row["phone"])}
             </div>
@@ -1351,41 +1028,20 @@ def registration_card(row):
         )
 
         try:
-
-            date = datetime.fromisoformat(
-                row["created_at"]
-            ).strftime(
-                "%d/%m/%Y à %H:%M"
-            )
-
+            date = datetime.fromisoformat(row["created_at"]).strftime("%d/%m/%Y à %H:%M")
         except Exception:
-
             date = "—"
 
-        st.caption(
-            f"Inscrit le {date}"
-        )
+        st.caption(f"Inscrit le {date}")
 
     with right:
-
         phone = row["phone"]
-
-        wa_number = phone.replace(
-            "+",
-            ""
-        )
-
-        wa_url = (
-            f"https://wa.me/{wa_number}"
-        )
+        wa_number = phone.replace("+", "")
+        wa_url = f"https://wa.me/{wa_number}"
 
         st.markdown(
             f"""
-            <a
-                href="{wa_url}"
-                target="_blank"
-                class="wa-button"
-            >
+            <a href="{wa_url}" target="_blank" class="wa-button">
                 🟢 WhatsApp
             </a>
             """,
@@ -1394,24 +1050,13 @@ def registration_card(row):
 
         st.markdown("")
 
-        if st.button(
-            "Supprimer",
-            key=f"delete_{row['id']}"
-        ):
-
-            delete_registration(
-                row["id"]
-            )
-
-            st.success(
-                "Inscription supprimée."
-            )
-
+        if st.button("Supprimer", key=f"delete_{row['id']}"):
+            delete_registration(row["id"])
+            st.success("Inscription supprimée.")
             st.rerun()
 
     st.markdown(
-        '<div style="height:1px;background:rgba(255,255,255,.05);'
-        'margin:12px 0;"></div>',
+        '<div style="height:1px;background:rgba(255,255,255,.05);margin:12px 0;"></div>',
         unsafe_allow_html=True
     )
 
@@ -1421,9 +1066,7 @@ def registration_card(row):
 # =========================================================
 
 def create_csv(rows):
-
     output = io.StringIO()
-
     writer = csv.writer(
         output,
         delimiter=";",
@@ -1439,7 +1082,6 @@ def create_csv(rows):
     ])
 
     for row in rows:
-
         writer.writerow([
             row["name"],
             row["phone"],
@@ -1456,13 +1098,8 @@ def create_csv(rows):
 # =========================================================
 
 if st.session_state.page == "registration":
-
     registration_page()
-
 elif st.session_state.page == "login":
-
     login_page()
-
 elif st.session_state.page == "admin":
-
     admin_dashboard()
