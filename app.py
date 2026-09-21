@@ -6,13 +6,8 @@ import csv
 import io
 import html
 import base64
+import time
 from datetime import datetime, timedelta
-
-try:
-    from streamlit_autorefresh import st_autorefresh
-except ImportError:
-    st_autorefresh = None
-
 
 # =========================================================
 # CONFIG
@@ -27,23 +22,15 @@ st.set_page_config(
 
 APP_NAME = "TEDx B'DARIJA"
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-DB_DIR = os.path.join(BASE_DIR, "data")
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-
-DB_PATH = os.path.join(DB_DIR, "tedx.db")
-
-# EXACT LOGO NAME
-LOGO_PATH = os.path.join(
-    BASE_DIR,
-    "tedx-bdarija-logo.png.jpg"
-)
+DB_PATH = "tedx_bdarija.db"
+UPLOAD_DIR = "uploads"
+LOGO_PATH = "tedx-bdarija-logo.png.jpg"
 
 ADMIN_EMAIL = "outhmane@farah.love"
 ADMIN_PASSWORD = "oufa@2026@!"
 
-os.makedirs(DB_DIR, exist_ok=True)
+MAX_PHOTO_SIZE = 3 * 1024 * 1024
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
@@ -83,23 +70,61 @@ def init_database():
         )
     """)
 
-    existing = conn.execute(
-        "SELECT value FROM settings WHERE key = 'deadline'"
-    ).fetchone()
+    row = conn.execute("""
+        SELECT value
+        FROM settings
+        WHERE key = 'deadline'
+    """).fetchone()
 
-    if not existing:
+    if not row:
 
-        default_deadline = (
-            datetime.now() + timedelta(days=30)
-        ).isoformat(timespec="minutes")
+        deadline = (
+            datetime.now() +
+            timedelta(days=30)
+        )
 
-        conn.execute(
-            """
+        conn.execute("""
             INSERT INTO settings (key, value)
             VALUES (?, ?)
-            """,
-            ("deadline", default_deadline)
-        )
+        """, (
+            "deadline",
+            deadline.isoformat(
+                timespec="minutes"
+            )
+        ))
+
+    conn.commit()
+    conn.close()
+
+
+def get_setting(key, default=None):
+
+    conn = get_connection()
+
+    row = conn.execute("""
+        SELECT value
+        FROM settings
+        WHERE key = ?
+    """, (key,)).fetchone()
+
+    conn.close()
+
+    if row:
+        return row["value"]
+
+    return default
+
+
+def save_setting(key, value):
+
+    conn = get_connection()
+
+    conn.execute("""
+        INSERT INTO settings (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key)
+        DO UPDATE SET value = excluded.value
+    """, (key, value))
 
     conn.commit()
     conn.close()
@@ -107,46 +132,15 @@ def init_database():
 
 def get_deadline():
 
-    conn = get_connection()
+    value = get_setting("deadline")
 
-    row = conn.execute(
-        """
-        SELECT value
-        FROM settings
-        WHERE key = 'deadline'
-        """
-    ).fetchone()
-
-    conn.close()
-
-    if not row:
+    if not value:
         return datetime.now() + timedelta(days=30)
 
     try:
-        return datetime.fromisoformat(row["value"])
+        return datetime.fromisoformat(value)
     except Exception:
         return datetime.now() + timedelta(days=30)
-
-
-def save_deadline(value):
-
-    conn = get_connection()
-
-    conn.execute(
-        """
-        INSERT INTO settings (key, value)
-        VALUES (?, ?)
-        ON CONFLICT(key)
-        DO UPDATE SET value = excluded.value
-        """,
-        (
-            "deadline",
-            value.isoformat(timespec="minutes")
-        )
-    )
-
-    conn.commit()
-    conn.close()
 
 
 def add_registration(
@@ -159,8 +153,7 @@ def add_registration(
 
     conn = get_connection()
 
-    conn.execute(
-        """
+    conn.execute("""
         INSERT INTO registrations
         (
             name,
@@ -171,18 +164,16 @@ def add_registration(
             created_at
         )
         VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            name,
-            phone,
-            major,
-            year,
-            photo_path,
-            datetime.now().isoformat(
-                timespec="seconds"
-            )
+    """, (
+        name,
+        phone,
+        major,
+        year,
+        photo_path,
+        datetime.now().isoformat(
+            timespec="seconds"
         )
-    )
+    ))
 
     conn.commit()
     conn.close()
@@ -192,13 +183,11 @@ def get_registrations():
 
     conn = get_connection()
 
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT *
         FROM registrations
         ORDER BY datetime(created_at) DESC
-        """
-    ).fetchall()
+    """).fetchall()
 
     conn.close()
 
@@ -209,71 +198,59 @@ def delete_registration(registration_id):
 
     conn = get_connection()
 
-    row = conn.execute(
-        """
+    row = conn.execute("""
         SELECT photo_path
         FROM registrations
         WHERE id = ?
-        """,
-        (registration_id,)
-    ).fetchone()
+    """, (registration_id,)).fetchone()
 
     if row and row["photo_path"]:
 
         try:
-
             if os.path.exists(
                 row["photo_path"]
             ):
                 os.remove(
                     row["photo_path"]
                 )
-
         except Exception:
             pass
 
-    conn.execute(
-        """
+    conn.execute("""
         DELETE FROM registrations
         WHERE id = ?
-        """,
-        (registration_id,)
-    )
+    """, (registration_id,))
 
     conn.commit()
     conn.close()
 
 
-def delete_all_registrations():
+def clear_registrations():
 
     conn = get_connection()
 
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT photo_path
         FROM registrations
-        """
-    ).fetchall()
+    """).fetchall()
 
     for row in rows:
 
         if row["photo_path"]:
 
             try:
-
                 if os.path.exists(
                     row["photo_path"]
                 ):
                     os.remove(
                         row["photo_path"]
                     )
-
             except Exception:
                 pass
 
-    conn.execute(
-        "DELETE FROM registrations"
-    )
+    conn.execute("""
+        DELETE FROM registrations
+    """)
 
     conn.commit()
     conn.close()
@@ -283,10 +260,30 @@ def delete_all_registrations():
 # HELPERS
 # =========================================================
 
-def normalize_moroccan_phone(value):
+def get_logo_base64():
+
+    if not os.path.exists(LOGO_PATH):
+        return None
+
+    try:
+
+        with open(
+            LOGO_PATH,
+            "rb"
+        ) as file:
+
+            return base64.b64encode(
+                file.read()
+            ).decode()
+
+    except Exception:
+        return None
+
+
+def normalize_phone(value):
 
     raw = re.sub(
-        r"[\s\-]",
+        r"[\s\-().]",
         "",
         str(value or "")
     )
@@ -312,50 +309,104 @@ def normalize_moroccan_phone(value):
     return None
 
 
-def get_base64_image(path):
+def safe_filename(name):
+
+    extension = os.path.splitext(
+        name
+    )[1].lower()
+
+    allowed = [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp"
+    ]
+
+    if extension not in allowed:
+        return ".jpg"
+
+    return extension
+
+
+def format_date(value):
 
     try:
 
-        with open(
-            path,
-            "rb"
-        ) as f:
-
-            return base64.b64encode(
-                f.read()
-            ).decode()
+        return datetime.fromisoformat(
+            value
+        ).strftime(
+            "%d/%m/%Y • %H:%M"
+        )
 
     except Exception:
+        return "—"
 
-        return None
 
+def create_csv(rows):
 
-def safe(value):
+    output = io.StringIO()
 
-    return html.escape(
-        str(value or "")
+    writer = csv.writer(
+        output,
+        delimiter=";",
+        quoting=csv.QUOTE_ALL
     )
 
+    writer.writerow([
+        "ID",
+        "Nom et prénom",
+        "WhatsApp",
+        "Filière",
+        "Année",
+        "Date"
+    ])
+
+    for row in rows:
+
+        writer.writerow([
+            row["id"],
+            row["name"],
+            row["phone"],
+            row["major"],
+            row["year"],
+            row["created_at"]
+        ])
+
+    return "\ufeff" + output.getvalue()
+
 
 # =========================================================
-# AUTO REFRESH
+# DATABASE INIT
 # =========================================================
 
-if st_autorefresh:
-
-    st_autorefresh(
-        interval=1000,
-        limit=None,
-        key="tedx_clock"
-    )
+init_database()
 
 
 # =========================================================
-# PREMIUM CSS
+# SESSION STATE
 # =========================================================
 
-st.markdown(
-"""
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+
+if "admin_logged" not in st.session_state:
+    st.session_state.admin_logged = False
+
+if "login_error" not in st.session_state:
+    st.session_state.login_error = False
+
+if "success" not in st.session_state:
+    st.session_state.success = False
+
+if "confirm_clear" not in st.session_state:
+    st.session_state.confirm_clear = False
+
+
+# =========================================================
+# CSS
+# =========================================================
+
+st.markdown("""
 <style>
 
 @import url(
@@ -363,20 +414,13 @@ st.markdown(
 );
 
 :root {
-
     --red: #e62b1e;
-    --red2: #ff4a3d;
-
-    --bg: #050505;
-    --panel: rgba(17,17,18,.72);
-
+    --red2: #ff4438;
+    --black: #050505;
     --white: #ffffff;
-    --muted: #777;
-    --line: rgba(255,255,255,.09);
-
-    --shadow:
-        0 30px 100px rgba(0,0,0,.65);
-
+    --muted: #8b8b8b;
+    --glass: rgba(255,255,255,.055);
+    --border: rgba(255,255,255,.10);
 }
 
 * {
@@ -385,50 +429,61 @@ st.markdown(
 
 html,
 body,
+[data-testid="stAppViewContainer"],
 .stApp {
+
+    margin: 0 !important;
+    padding: 0 !important;
 
     font-family:
         "Inter",
         sans-serif !important;
 
-    background: #050505 !important;
-
-    color: white !important;
-
-}
-
-.stApp {
-
-    min-height: 100vh;
-
     background:
-
         radial-gradient(
-            circle at 8% 10%,
+            circle at 12% 5%,
             rgba(230,43,30,.18),
-            transparent 25%
+            transparent 28%
         ),
-
         radial-gradient(
-            circle at 90% 20%,
-            rgba(230,43,30,.10),
-            transparent 25%
+            circle at 90% 80%,
+            rgba(230,43,30,.12),
+            transparent 30%
         ),
-
-        radial-gradient(
-            circle at 50% 100%,
-            rgba(230,43,30,.08),
-            transparent 35%
-        ),
-
         #050505 !important;
 
+    color: white !important;
 }
 
+body {
+    overflow-x: hidden;
+}
 
-/* =====================================================
-   ANIMATED GRID
-===================================================== */
+#MainMenu {
+    visibility: hidden;
+}
+
+footer {
+    visibility: hidden;
+}
+
+header[data-testid="stHeader"] {
+    background: transparent !important;
+}
+
+.block-container {
+
+    max-width: 1400px !important;
+
+    padding-top: 1.5rem !important;
+    padding-bottom: 3rem !important;
+    padding-left: 3rem !important;
+    padding-right: 3rem !important;
+}
+
+/* ===================================================== */
+/* BACKGROUND */
+/* ===================================================== */
 
 .stApp::before {
 
@@ -436,58 +491,26 @@ body,
 
     position: fixed;
 
-    inset: 0;
+    width: 700px;
+    height: 700px;
+
+    top: -350px;
+    left: -250px;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(230,43,30,.15),
+            transparent 68%
+        );
 
     pointer-events: none;
 
-    opacity: .22;
-
-    background-image:
-
-        linear-gradient(
-            rgba(255,255,255,.025) 1px,
-            transparent 1px
-        ),
-
-        linear-gradient(
-            90deg,
-            rgba(255,255,255,.025) 1px,
-            transparent 1px
-        );
-
-    background-size:
-        55px 55px;
-
-    mask-image:
-        radial-gradient(
-            circle at center,
-            black,
-            transparent 78%
-        );
-
-    animation:
-        gridMove 18s linear infinite;
-
     z-index: 0;
 
+    animation:
+        floatingGlow 10s ease-in-out infinite;
 }
-
-@keyframes gridMove {
-
-    from {
-        transform: translate3d(0,0,0);
-    }
-
-    to {
-        transform: translate3d(55px,55px,0);
-    }
-
-}
-
-
-/* =====================================================
-   RED AMBIENT ORB
-===================================================== */
 
 .stApp::after {
 
@@ -495,345 +518,546 @@ body,
 
     position: fixed;
 
-    width: 420px;
-    height: 420px;
+    width: 500px;
+    height: 500px;
 
-    border-radius: 50%;
-
-    left: -180px;
-    top: 45%;
+    bottom: -250px;
+    right: -180px;
 
     background:
         radial-gradient(
             circle,
-            rgba(230,43,30,.16),
-            transparent 68%
+            rgba(230,43,30,.12),
+            transparent 70%
         );
-
-    filter: blur(10px);
 
     pointer-events: none;
 
-    animation:
-        orbFloat 9s ease-in-out infinite;
+    z-index: 0;
 
+    animation:
+        floatingGlow2 12s ease-in-out infinite;
 }
 
-@keyframes orbFloat {
+@keyframes floatingGlow {
 
     0%,100% {
-        transform:
-            translate3d(0,0,0)
-            scale(1);
+        transform: translate3d(0,0,0);
     }
 
     50% {
-        transform:
-            translate3d(80px,-40px,0)
-            scale(1.12);
+        transform: translate3d(80px,60px,0);
+    }
+}
+
+@keyframes floatingGlow2 {
+
+    0%,100% {
+        transform: translate3d(0,0,0);
     }
 
+    50% {
+        transform: translate3d(-70px,-40px,0);
+    }
 }
 
+/* ===================================================== */
+/* HERO */
+/* ===================================================== */
 
-/* =====================================================
-   STREAMLIT
-===================================================== */
-
-.block-container {
+.hero-shell {
 
     position: relative;
 
-    z-index: 2;
+    min-height: 680px;
 
-    max-width: 1380px !important;
+    display: flex;
 
-    padding-top: 2rem !important;
+    align-items: center;
 
-    padding-bottom: 5rem !important;
+    justify-content: center;
 
-}
+    overflow: hidden;
 
-header[data-testid="stHeader"] {
+    border-radius: 42px;
+
+    border:
+        1px solid rgba(255,255,255,.10);
 
     background:
-        rgba(0,0,0,.15) !important;
 
-    backdrop-filter:
-        blur(15px);
+        linear-gradient(
+            135deg,
+            rgba(255,255,255,.065),
+            rgba(255,255,255,.015)
+        );
 
+    box-shadow:
+
+        0 50px 120px rgba(0,0,0,.65),
+
+        inset 0 1px 0
+        rgba(255,255,255,.08);
+
+    backdrop-filter: blur(25px);
+
+    transform-style: preserve-3d;
 }
 
-footer {
-    visibility: hidden;
+.hero-shell::before {
+
+    content: "";
+
+    position: absolute;
+
+    inset: 0;
+
+    background:
+
+        linear-gradient(
+            120deg,
+            transparent 25%,
+            rgba(255,255,255,.035) 45%,
+            transparent 65%
+        );
+
+    animation:
+        shine 7s linear infinite;
+
+    pointer-events: none;
 }
 
-[data-testid="stSidebar"] {
-    display: none;
+@keyframes shine {
+
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
 }
 
+/* ===================================================== */
+/* 3D ORBIT */
+/* ===================================================== */
 
-/* =====================================================
-   MAIN 3D GLASS
-===================================================== */
+.orbit-scene {
 
-.premium-shell {
+    position: absolute;
 
-    position: relative;
+    width: 620px;
+    height: 620px;
 
-    padding: 42px;
+    right: -80px;
+    top: 30px;
 
-    border-radius: 36px;
+    perspective: 1000px;
+
+    pointer-events: none;
+
+    opacity: .95;
+}
+
+.orbit {
+
+    position: absolute;
+
+    inset: 70px;
+
+    border:
+        1px solid rgba(230,43,30,.35);
+
+    border-radius: 50%;
+
+    transform:
+        rotateX(70deg)
+        rotateZ(15deg);
+
+    box-shadow:
+        0 0 60px
+        rgba(230,43,30,.12);
+
+    animation:
+        orbitRotate 16s linear infinite;
+}
+
+.orbit.two {
+
+    inset: 120px;
+
+    transform:
+        rotateX(70deg)
+        rotateZ(-25deg);
+
+    animation-duration: 12s;
+
+    border-color:
+        rgba(255,255,255,.12);
+}
+
+.orbit.three {
+
+    inset: 165px;
+
+    transform:
+        rotateX(70deg)
+        rotateZ(45deg);
+
+    animation-duration: 20s;
+
+    border-color:
+        rgba(230,43,30,.22);
+}
+
+@keyframes orbitRotate {
+
+    from {
+        transform:
+            rotateX(70deg)
+            rotateZ(0deg);
+    }
+
+    to {
+        transform:
+            rotateX(70deg)
+            rotateZ(360deg);
+    }
+}
+
+.core {
+
+    position: absolute;
+
+    width: 220px;
+    height: 220px;
+
+    left: 200px;
+    top: 200px;
+
+    border-radius: 45px;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
 
     background:
 
         linear-gradient(
             145deg,
-            rgba(30,30,31,.82),
-            rgba(7,7,8,.74)
+            rgba(230,43,30,.20),
+            rgba(0,0,0,.75)
         );
 
     border:
         1px solid
-        rgba(255,255,255,.10);
+        rgba(230,43,30,.45);
 
     box-shadow:
 
-        0 40px 120px
-        rgba(0,0,0,.68),
+        0 0 100px
+        rgba(230,43,30,.22),
 
         inset 0 1px 0
-        rgba(255,255,255,.07);
-
-    backdrop-filter:
-        blur(28px);
-
-    overflow: hidden;
+        rgba(255,255,255,.12);
 
     transform:
-        perspective(1500px)
-        translateZ(0);
-
-}
-
-.premium-shell::before {
-
-    content: "";
-
-    position: absolute;
-
-    inset: -2px;
-
-    border-radius: inherit;
-
-    background:
-
-        linear-gradient(
-            115deg,
-            transparent 20%,
-            rgba(230,43,30,.14),
-            transparent 45%
-        );
-
-    pointer-events: none;
-
-}
-
-.premium-shell::after {
-
-    content: "";
-
-    position: absolute;
-
-    width: 260px;
-    height: 260px;
-
-    right: -120px;
-    top: -120px;
-
-    border-radius: 50%;
-
-    background:
-        radial-gradient(
-            circle,
-            rgba(230,43,30,.22),
-            transparent 70%
-        );
-
-    filter: blur(8px);
-
-    pointer-events: none;
-
-}
-
-
-/* =====================================================
-   HERO
-===================================================== */
-
-.hero-wrap {
-
-    position: relative;
-
-    text-align: center;
-
-    padding:
-        25px 10px
-        35px;
-
-}
-
-.hero-logo {
-
-    position: relative;
-
-    width: 122px;
-    height: 122px;
-
-    object-fit: cover;
-
-    border-radius: 50%;
-
-    border:
-        2px solid
-        rgba(230,43,30,.75);
-
-    box-shadow:
-
-        0 0 0 8px
-        rgba(230,43,30,.035),
-
-        0 0 70px
-        rgba(230,43,30,.28),
-
-        0 25px 70px
-        rgba(0,0,0,.65);
+        rotateX(8deg)
+        rotateY(-12deg);
 
     animation:
-        logoFloat 4s ease-in-out infinite;
-
+        coreFloat 5s ease-in-out infinite;
 }
 
-@keyframes logoFloat {
+@keyframes coreFloat {
 
     0%,100% {
         transform:
             translateY(0)
-            rotateX(0deg);
+            rotateX(8deg)
+            rotateY(-12deg);
     }
 
     50% {
         transform:
-            translateY(-8px)
-            rotateX(5deg);
+            translateY(-18px)
+            rotateX(12deg)
+            rotateY(-18deg);
     }
-
 }
 
-.hero-title {
+.core span {
 
-    margin-top: 28px;
-
-    font-size:
-        clamp(
-            2.5rem,
-            6vw,
-            5rem
-        );
-
-    line-height: .95;
+    font-size: 3.5rem;
 
     font-weight: 900;
 
     letter-spacing: -4px;
 
+    color: white;
+
     text-shadow:
-        0 15px 45px
-        rgba(0,0,0,.6);
+        0 0 30px
+        rgba(230,43,30,.45);
+}
+
+.core span b {
+    color: var(--red);
+}
+
+/* ===================================================== */
+/* HERO CONTENT */
+/* ===================================================== */
+
+.hero-content {
+
+    position: relative;
+
+    z-index: 5;
+
+    width: 58%;
+
+    margin-right: auto;
+
+    padding: 70px;
 
 }
 
-.hero-title span {
+.logo-main {
 
-    color: var(--red);
+    width: 86px;
+    height: 86px;
+
+    object-fit: cover;
+
+    border-radius: 24px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.16);
+
+    box-shadow:
+
+        0 25px 50px
+        rgba(0,0,0,.5),
+
+        0 0 45px
+        rgba(230,43,30,.25);
+
+    animation:
+        logoFloat 5s ease-in-out infinite;
+}
+
+@keyframes logoFloat {
+
+    0%,100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-8px);
+    }
+}
+
+.eyebrow {
+
+    margin-top: 28px;
+
+    color: #999;
+
+    font-size: .75rem;
+
+    font-weight: 700;
+
+    letter-spacing: 4px;
+
+    text-transform: uppercase;
+}
+
+.hero-title {
+
+    margin-top: 12px;
+
+    font-size:
+        clamp(3.2rem, 7vw, 6.8rem);
+
+    line-height: .9;
+
+    letter-spacing: -6px;
+
+    font-weight: 900;
+
+    color: white;
 
     text-shadow:
+        0 20px 60px
+        rgba(0,0,0,.55);
+}
 
-        0 0 20px
-        rgba(230,43,30,.45),
-
-        0 0 60px
-        rgba(230,43,30,.2);
-
+.hero-title .red {
+    color: var(--red);
 }
 
 .hero-ar {
 
-    margin-top: 18px;
+    margin-top: 22px;
 
-    font-family: "Cairo", sans-serif;
-
-    color: #fff;
+    font-family:
+        "Cairo",
+        sans-serif;
 
     font-size:
-        clamp(
-            1.25rem,
-            3vw,
-            2rem
-        );
+        clamp(1.2rem, 2.2vw, 1.7rem);
+
+    color: #f1f1f1;
+
+    font-weight: 700;
+}
+
+.hero-description {
+
+    max-width: 570px;
+
+    margin-top: 15px;
+
+    color: #999;
+
+    line-height: 1.8;
+
+    font-size: .95rem;
+}
+
+/* ===================================================== */
+/* BADGE */
+/* ===================================================== */
+
+.live-badge {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 9px;
+
+    padding: 9px 13px;
+
+    border-radius: 999px;
+
+    background:
+        rgba(230,43,30,.09);
+
+    border:
+        1px solid
+        rgba(230,43,30,.22);
+
+    color: #ff776e;
+
+    font-size: .72rem;
 
     font-weight: 800;
 
-}
-
-.hero-small {
-
-    margin-top: 8px;
-
-    color: #666;
-
-    font-size: .68rem;
-
-    letter-spacing: 5px;
+    letter-spacing: 1px;
 
     text-transform: uppercase;
-
 }
 
+.live-dot {
 
-/* =====================================================
-   3D FLOATING CARDS
-===================================================== */
+    width: 7px;
+    height: 7px;
 
-.floating-stage {
+    border-radius: 50%;
 
-    position: relative;
+    background: var(--red);
 
-    height: 115px;
+    box-shadow:
+        0 0 15px
+        rgba(230,43,30,.9);
 
-    margin:
-        5px auto
-        25px;
-
-    max-width: 720px;
-
-    perspective: 1000px;
-
+    animation:
+        pulseDot 1.5s infinite;
 }
 
-.float-card {
+@keyframes pulseDot {
 
-    position: absolute;
+    0%,100% {
+        opacity: 1;
+        transform: scale(1);
+    }
 
-    padding:
-        13px 18px;
+    50% {
+        opacity: .4;
+        transform: scale(.7);
+    }
+}
 
-    border-radius: 15px;
+/* ===================================================== */
+/* BUTTON */
+/* ===================================================== */
+
+.stButton > button {
+
+    min-height: 52px;
+
+    border-radius: 15px !important;
+
+    border:
+        1px solid
+        rgba(255,255,255,.10) !important;
+
+    background:
+        linear-gradient(
+            135deg,
+            #f13a2d,
+            #9e1710
+        ) !important;
+
+    color: white !important;
+
+    font-weight: 800 !important;
+
+    transition:
+        transform .25s ease,
+        box-shadow .25s ease,
+        border .25s ease !important;
+
+    box-shadow:
+        0 12px 30px
+        rgba(230,43,30,.15);
+}
+
+.stButton > button:hover {
+
+    transform:
+        translateY(-3px)
+        scale(1.01);
+
+    box-shadow:
+        0 20px 45px
+        rgba(230,43,30,.28) !important;
+
+    border-color:
+        rgba(255,255,255,.22) !important;
+}
+
+/* ===================================================== */
+/* FORM */
+/* ===================================================== */
+
+.form-card {
+
+    margin-top: 35px;
+
+    padding: 38px;
+
+    border-radius: 32px;
 
     background:
         linear-gradient(
             145deg,
-            rgba(255,255,255,.075),
+            rgba(255,255,255,.065),
             rgba(255,255,255,.025)
         );
 
@@ -842,183 +1066,76 @@ footer {
         rgba(255,255,255,.10);
 
     box-shadow:
-        0 25px 50px
-        rgba(0,0,0,.4);
+        0 35px 90px
+        rgba(0,0,0,.45),
+
+        inset 0 1px 0
+        rgba(255,255,255,.05);
 
     backdrop-filter:
-        blur(15px);
-
-    color: #ddd;
-
-    font-size: .75rem;
-
-    font-weight: 700;
-
-    letter-spacing: .5px;
-
+        blur(24px);
 }
 
-.float-one {
-
-    left: 7%;
-
-    top: 25px;
-
-    transform:
-        rotateY(20deg)
-        rotateZ(-5deg);
-
-    animation:
-        floatOne 5s ease-in-out infinite;
-
-}
-
-.float-two {
-
-    right: 7%;
-
-    top: 8px;
-
-    transform:
-        rotateY(-20deg)
-        rotateZ(5deg);
-
-    animation:
-        floatTwo 6s ease-in-out infinite;
-
-}
-
-.float-three {
-
-    left: 39%;
-
-    top: 65px;
+.section-kicker {
 
     color: var(--red);
 
-    animation:
-        floatThree 4s ease-in-out infinite;
-
-}
-
-@keyframes floatOne {
-
-    0%,100% {
-        transform:
-            translateY(0)
-            rotateY(20deg)
-            rotateZ(-5deg);
-    }
-
-    50% {
-        transform:
-            translateY(-13px)
-            rotateY(25deg)
-            rotateZ(-3deg);
-    }
-
-}
-
-@keyframes floatTwo {
-
-    0%,100% {
-        transform:
-            translateY(0)
-            rotateY(-20deg)
-            rotateZ(5deg);
-    }
-
-    50% {
-        transform:
-            translateY(15px)
-            rotateY(-25deg)
-            rotateZ(3deg);
-    }
-
-}
-
-@keyframes floatThree {
-
-    0%,100% {
-        transform:
-            translateY(0)
-            scale(1);
-    }
-
-    50% {
-        transform:
-            translateY(-8px)
-            scale(1.04);
-    }
-
-}
-
-
-/* =====================================================
-   SECTION
-===================================================== */
-
-.section-heading {
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 12px;
-
-    margin:
-        15px 0
-        20px;
-
-    font-size: 1.4rem;
+    font-size: .7rem;
 
     font-weight: 900;
 
-}
-
-.section-heading::before {
-
-    content: "";
-
-    width: 4px;
-    height: 27px;
-
-    border-radius: 10px;
-
-    background:
-        linear-gradient(
-            #ff4a3d,
-            #b8170f
-        );
-
-    box-shadow:
-        0 0 20px
-        rgba(230,43,30,.35);
-
-}
-
-
-/* =====================================================
-   COUNTDOWN
-===================================================== */
-
-.countdown-label {
-
-    text-align: center;
-
-    color: #666;
-
-    font-size: .66rem;
-
-    letter-spacing: 4px;
+    letter-spacing: 3px;
 
     text-transform: uppercase;
-
-    margin-bottom: 10px;
-
 }
 
-.timer-grid {
+.section-title {
+
+    font-size:
+        clamp(1.8rem, 4vw, 2.8rem);
+
+    font-weight: 900;
+
+    letter-spacing: -2px;
+
+    margin-top: 7px;
+}
+
+/* ===================================================== */
+/* INPUTS */
+/* ===================================================== */
+
+div[data-testid="stTextInput"] input,
+div[data-testid="stSelectbox"] > div > div,
+div[data-testid="stDateInput"] input,
+div[data-testid="stTimeInput"] input {
+
+    background:
+        rgba(0,0,0,.55) !important;
+
+    color: white !important;
+
+    border:
+        1px solid
+        rgba(255,255,255,.12) !important;
+
+    border-radius: 14px !important;
+
+    min-height: 48px !important;
+}
+
+label {
+
+    color: #d0d0d0 !important;
+
+    font-weight: 600 !important;
+}
+
+/* ===================================================== */
+/* COUNTDOWN */
+/* ===================================================== */
+
+.countdown {
 
     display: grid;
 
@@ -1027,20 +1144,16 @@ footer {
 
     gap: 12px;
 
-    margin:
-        12px 0
-        32px;
-
+    margin-top: 30px;
 }
 
-.timer-box {
+.time-box {
 
     position: relative;
 
     overflow: hidden;
 
-    padding:
-        20px 10px;
+    padding: 20px 10px;
 
     text-align: center;
 
@@ -1049,194 +1162,7 @@ footer {
     background:
         linear-gradient(
             145deg,
-            rgba(255,255,255,.055),
-            rgba(0,0,0,.35)
-        );
-
-    border:
-        1px solid
-        rgba(230,43,30,.22);
-
-    box-shadow:
-        inset 0 1px 0
-        rgba(255,255,255,.04),
-
-        0 20px 45px
-        rgba(0,0,0,.3);
-
-    transition:
-        transform .25s ease,
-        border .25s ease;
-
-}
-
-.timer-box:hover {
-
-    transform:
-        translateY(-5px)
-        scale(1.015);
-
-    border-color:
-        rgba(230,43,30,.5);
-
-}
-
-.timer-number {
-
-    font-size:
-        clamp(
-            1.5rem,
-            4vw,
-            2.7rem
-        );
-
-    font-weight: 900;
-
-    letter-spacing: -1px;
-
-}
-
-.timer-label {
-
-    margin-top: 3px;
-
-    color: #666;
-
-    font-size: .61rem;
-
-    text-transform: uppercase;
-
-    letter-spacing: 2px;
-
-}
-
-
-/* =====================================================
-   INPUTS
-===================================================== */
-
-div[data-testid="stTextInput"],
-div[data-testid="stSelectbox"],
-div[data-testid="stFileUploader"] {
-
-    margin-bottom: 8px;
-
-}
-
-div[data-testid="stTextInput"] input,
-div[data-testid="stTextArea"] textarea {
-
-    background:
-        rgba(0,0,0,.45) !important;
-
-    color: #fff !important;
-
-    border:
-        1px solid
-        rgba(255,255,255,.10) !important;
-
-    border-radius: 14px !important;
-
-    min-height: 48px;
-
-    transition:
-        .2s ease;
-
-}
-
-div[data-testid="stTextInput"] input:focus {
-
-    border-color:
-        rgba(230,43,30,.7) !important;
-
-    box-shadow:
-        0 0 0 3px
-        rgba(230,43,30,.08) !important;
-
-}
-
-label {
-
-    color: #bbb !important;
-
-    font-weight: 600 !important;
-
-}
-
-
-/* =====================================================
-   BUTTON
-===================================================== */
-
-.stButton > button,
-.stFormSubmitButton > button {
-
-    width: 100%;
-
-    min-height: 50px;
-
-    border-radius: 14px;
-
-    border:
-        1px solid
-        rgba(255,255,255,.10);
-
-    background:
-
-        linear-gradient(
-            135deg,
-            #ed3427,
-            #a91912
-        );
-
-    color: white;
-
-    font-weight: 800;
-
-    box-shadow:
-        0 15px 35px
-        rgba(230,43,30,.18);
-
-    transition:
-        transform .2s ease,
-        box-shadow .2s ease;
-
-}
-
-.stButton > button:hover,
-.stFormSubmitButton > button:hover {
-
-    transform:
-        translateY(-3px);
-
-    box-shadow:
-        0 20px 45px
-        rgba(230,43,30,.32);
-
-}
-
-
-/* =====================================================
-   ADMIN STATS
-===================================================== */
-
-.stat-card {
-
-    position: relative;
-
-    overflow: hidden;
-
-    min-height: 145px;
-
-    padding: 24px;
-
-    border-radius: 22px;
-
-    background:
-
-        linear-gradient(
-            145deg,
-            rgba(255,255,255,.055),
+            rgba(255,255,255,.065),
             rgba(255,255,255,.018)
         );
 
@@ -1245,448 +1171,359 @@ label {
         rgba(255,255,255,.08);
 
     box-shadow:
-        0 25px 60px
-        rgba(0,0,0,.35);
-
-    transition:
-        transform .25s ease,
-        border .25s ease;
-
+        inset 0 1px 0
+        rgba(255,255,255,.05);
 }
 
-.stat-card:hover {
-
-    transform:
-        translateY(-6px);
-
-    border-color:
-        rgba(230,43,30,.28);
-
-}
-
-.stat-card::after {
+.time-box::after {
 
     content: "";
 
     position: absolute;
 
-    width: 100px;
-    height: 100px;
+    width: 80px;
+    height: 80px;
 
     right: -45px;
-    bottom: -45px;
+    top: -45px;
 
     border-radius: 50%;
 
     background:
         rgba(230,43,30,.12);
 
-    filter: blur(8px);
-
+    filter: blur(20px);
 }
 
-.stat-label {
+.time-number {
 
-    color: #666;
+    font-size:
+        clamp(1.5rem, 4vw, 2.5rem);
 
-    font-size: .64rem;
+    font-weight: 900;
+
+    letter-spacing: -2px;
+}
+
+.time-label {
+
+    color: #777;
+
+    margin-top: 4px;
+
+    font-size: .65rem;
 
     text-transform: uppercase;
 
     letter-spacing: 2px;
-
 }
 
-.stat-number {
+/* ===================================================== */
+/* ADMIN */
+/* ===================================================== */
 
-    margin-top: 10px;
+.admin-shell {
 
-    font-size: 2.5rem;
+    padding: 30px;
 
-    font-weight: 900;
-
-}
-
-.stat-red {
-
-    color: #ff4d40;
-
-    text-shadow:
-        0 0 30px
-        rgba(230,43,30,.22);
-
-}
-
-
-/* =====================================================
-   ADMIN HEADER
-===================================================== */
-
-.admin-title {
-
-    font-size:
-        clamp(
-            1.7rem,
-            4vw,
-            2.5rem
-        );
-
-    font-weight: 900;
-
-    letter-spacing: -1.5px;
-
-}
-
-.admin-online {
-
-    display: inline-flex;
-
-    align-items: center;
-
-    gap: 7px;
-
-    margin-top: 7px;
-
-    color: #55e69e;
-
-    font-size: .72rem;
-
-}
-
-.online-dot {
-
-    width: 7px;
-    height: 7px;
-
-    border-radius: 50%;
-
-    background: #55e69e;
-
-    box-shadow:
-        0 0 12px
-        #55e69e;
-
-    animation:
-        onlinePulse 1.5s infinite;
-
-}
-
-@keyframes onlinePulse {
-
-    0%,100% {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    50% {
-        opacity: .45;
-        transform: scale(.7);
-    }
-
-}
-
-
-/* =====================================================
-   PARTICIPANT
-===================================================== */
-
-.participant-card {
-
-    padding: 17px;
-
-    margin:
-        8px 0;
-
-    border-radius: 20px;
+    border-radius: 32px;
 
     background:
         linear-gradient(
             145deg,
-            rgba(255,255,255,.045),
-            rgba(255,255,255,.018)
+            rgba(255,255,255,.065),
+            rgba(255,255,255,.02)
         );
 
     border:
         1px solid
-        rgba(255,255,255,.065);
-
-    transition:
-        .25s ease;
-
-}
-
-.participant-card:hover {
-
-    transform:
-        translateX(4px);
-
-    border-color:
-        rgba(230,43,30,.24);
+        rgba(255,255,255,.09);
 
     box-shadow:
-        0 20px 50px
-        rgba(0,0,0,.3);
+        0 40px 100px
+        rgba(0,0,0,.55);
 
+    backdrop-filter:
+        blur(25px);
 }
 
-.name-text {
+.stat-card {
 
-    font-size: 1rem;
+    min-height: 145px;
 
-    font-weight: 800;
+    padding: 25px;
 
+    border-radius: 22px;
+
+    background:
+        rgba(255,255,255,.035);
+
+    border:
+        1px solid
+        rgba(255,255,255,.08);
+
+    transition:
+        transform .25s ease,
+        border .25s ease;
 }
 
-.small-text {
+.stat-card:hover {
+
+    transform:
+        translateY(-5px);
+
+    border-color:
+        rgba(230,43,30,.3);
+}
+
+.stat-label {
 
     color: #777;
 
-    font-size: .72rem;
+    font-size: .68rem;
 
-    margin-top: 4px;
+    text-transform: uppercase;
 
+    letter-spacing: 2px;
 }
 
-.wa-button {
+.stat-number {
+
+    margin-top: 8px;
+
+    font-size: 2.4rem;
+
+    font-weight: 900;
+}
+
+.stat-red {
+    color: var(--red);
+}
+
+/* ===================================================== */
+/* PARTICIPANT CARD */
+/* ===================================================== */
+
+.participant {
+
+    padding: 18px;
+
+    margin-bottom: 12px;
+
+    border-radius: 22px;
+
+    background:
+        rgba(255,255,255,.035);
+
+    border:
+        1px solid
+        rgba(255,255,255,.075);
+
+    transition:
+        transform .25s ease,
+        border .25s ease,
+        background .25s ease;
+}
+
+.participant:hover {
+
+    transform:
+        translateX(5px);
+
+    border-color:
+        rgba(230,43,30,.3);
+
+    background:
+        rgba(255,255,255,.05);
+}
+
+.participant-name {
+
+    font-size: 1rem;
+
+    font-weight: 850;
+}
+
+.participant-meta {
+
+    color: #888;
+
+    font-size: .75rem;
+
+    margin-top: 5px;
+}
+
+.wa {
 
     display: inline-flex;
 
-    align-items: center;
-
-    justify-content: center;
-
-    gap: 7px;
-
-    width: 100%;
-
-    padding:
-        10px 13px;
+    padding: 9px 13px;
 
     border-radius: 11px;
 
-    color: #52e89c;
+    color: #4de49a !important;
+
+    text-decoration: none !important;
 
     background:
         rgba(37,211,102,.08);
 
     border:
         1px solid
-        rgba(37,211,102,.17);
+        rgba(37,211,102,.15);
 
-    text-decoration: none;
-
-    font-size: .73rem;
+    font-size: .72rem;
 
     font-weight: 800;
-
-    transition:
-        .2s ease;
-
 }
 
-.wa-button:hover {
+/* ===================================================== */
+/* ADMIN LOGIN */
+/* ===================================================== */
+
+.login-card {
+
+    max-width: 560px;
+
+    margin:
+        70px auto;
+
+    padding: 45px;
+
+    border-radius: 32px;
 
     background:
-        rgba(37,211,102,.16);
-
-    transform:
-        translateY(-2px);
-
-}
-
-
-/* =====================================================
-   ADMIN BUTTON
-===================================================== */
-
-.admin-access button {
-
-    background:
-        rgba(255,255,255,.025) !important;
+        linear-gradient(
+            145deg,
+            rgba(255,255,255,.065),
+            rgba(255,255,255,.02)
+        );
 
     border:
         1px solid
-        rgba(255,255,255,.06) !important;
+        rgba(255,255,255,.10);
 
-    color: #666 !important;
-
-    box-shadow: none !important;
-
-    min-height: 42px;
-
-    font-size: .75rem;
-
+    box-shadow:
+        0 50px 120px
+        rgba(0,0,0,.65);
 }
 
-.admin-access button:hover {
+/* ===================================================== */
+/* MOBILE */
+/* ===================================================== */
 
-    color: #aaa !important;
-
-    border-color:
-        rgba(255,255,255,.12) !important;
-
-}
-
-
-/* =====================================================
-   MOBILE
-===================================================== */
-
-@media(max-width: 700px) {
+@media (max-width: 900px) {
 
     .block-container {
 
-        padding:
-            .8rem !important;
-
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
     }
 
-    .premium-shell {
+    .hero-shell {
 
-        padding:
-            22px 15px;
+        min-height: 650px;
 
-        border-radius: 25px;
-
+        border-radius: 30px;
     }
+
+    .hero-content {
+
+        width: 100%;
+
+        padding: 35px 25px;
+
+        text-align: center;
+    }
+
+    .hero-description {
+
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .orbit-scene {
+
+        width: 420px;
+        height: 420px;
+
+        right: 50%;
+
+        top: 310px;
+
+        transform:
+            translateX(50%)
+            scale(.75);
+
+        opacity: .42;
+    }
+
+    .core {
+
+        left: 100px;
+        top: 100px;
+    }
+
+    .form-card {
+
+        padding: 22px 16px;
+
+        border-radius: 24px;
+    }
+
+}
+
+@media (max-width: 600px) {
 
     .hero-title {
 
-        font-size:
-            2.55rem;
+        font-size: 3.3rem;
 
-        letter-spacing:
-            -2.5px;
-
+        letter-spacing: -4px;
     }
 
-    .hero-logo {
-
-        width: 95px;
-        height: 95px;
-
-    }
-
-    .floating-stage {
-
-        height: 85px;
-
-    }
-
-    .float-card {
-
-        font-size: .58rem;
-
-        padding:
-            9px 11px;
-
-    }
-
-    .timer-grid {
+    .countdown {
 
         gap: 6px;
-
     }
 
-    .timer-box {
+    .time-box {
 
-        padding:
-            13px 4px;
+        padding: 15px 5px;
 
-        border-radius: 15px;
-
+        border-radius: 14px;
     }
 
-    .timer-number {
+    .time-number {
 
-        font-size:
-            1.3rem;
-
+        font-size: 1.3rem;
     }
 
-    .stat-card {
+    .time-label {
 
-        min-height: 110px;
+        font-size: .55rem;
 
-        padding: 17px;
-
+        letter-spacing: 1px;
     }
 
-    .stat-number {
+    .login-card {
 
-        font-size: 2rem;
+        margin: 25px auto;
 
+        padding: 25px 18px;
     }
 
 }
 
 </style>
-""",
-unsafe_allow_html=True
-)
-
-
-# =========================================================
-# INIT
-# =========================================================
-
-init_database()
-
-
-# =========================================================
-# SESSION
-# =========================================================
-
-if "admin_logged" not in st.session_state:
-    st.session_state.admin_logged = False
-
-if "page" not in st.session_state:
-    st.session_state.page = "registration"
-
-if "login_error" not in st.session_state:
-    st.session_state.login_error = False
-
-if "confirm_clear" not in st.session_state:
-    st.session_state.confirm_clear = False
+""", unsafe_allow_html=True)
 
 
 # =========================================================
 # LOGO
 # =========================================================
 
-def render_logo():
-
-    if os.path.exists(LOGO_PATH):
-
-        encoded = get_base64_image(
-            LOGO_PATH
-        )
-
-        if encoded:
-
-            return f"""
-            <img
-                src="data:image/jpeg;base64,{encoded}"
-                class="hero-logo"
-            >
-            """
-
-    return """
-    <div
-        class="hero-logo"
-        style="
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            background:#111;
-            color:#e62b1e;
-            font-size:22px;
-            font-weight:900;
-        "
-    >
-        TEDx
-    </div>
-    """
+logo_b64 = get_logo_base64()
 
 
 # =========================================================
@@ -1697,185 +1534,211 @@ def render_countdown():
 
     deadline = get_deadline()
 
-    now = datetime.now()
-
-    seconds = max(
+    remaining = max(
         0,
         int(
             (
-                deadline - now
+                deadline -
+                datetime.now()
             ).total_seconds()
         )
     )
 
-    days = seconds // 86400
+    days = remaining // 86400
 
     hours = (
-        seconds % 86400
+        remaining % 86400
     ) // 3600
 
     minutes = (
-        seconds % 3600
+        remaining % 3600
     ) // 60
 
-    secs = seconds % 60
+    seconds = remaining % 60
 
-    st.markdown(
+    st.markdown(f"""
+    <div class="countdown">
+
+        <div class="time-box">
+            <div class="time-number">
+                {days:02d}
+            </div>
+            <div class="time-label">
+                Jours
+            </div>
+        </div>
+
+        <div class="time-box">
+            <div class="time-number">
+                {hours:02d}
+            </div>
+            <div class="time-label">
+                Heures
+            </div>
+        </div>
+
+        <div class="time-box">
+            <div class="time-number">
+                {minutes:02d}
+            </div>
+            <div class="time-label">
+                Minutes
+            </div>
+        </div>
+
+        <div class="time-box">
+            <div class="time-number">
+                {seconds:02d}
+            </div>
+            <div class="time-label">
+                Secondes
+            </div>
+        </div>
+
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# =========================================================
+# HOME / REGISTRATION
+# =========================================================
+
+def home_page():
+
+    logo_html = ""
+
+    if logo_b64:
+
+        logo_html = f"""
+        <img
+            src="data:image/jpeg;base64,{logo_b64}"
+            class="logo-main"
+        >
         """
-        <div class="countdown-label">
-            FIN DES INSCRIPTIONS DANS
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
-    st.markdown(
-        f"""
-        <div class="timer-grid">
+    st.markdown(f"""
+    <section class="hero-shell">
 
-            <div class="timer-box">
-                <div class="timer-number">
-                    {days:02d}
-                </div>
-                <div class="timer-label">
-                    Jours
-                </div>
-            </div>
+        <div class="orbit-scene">
 
-            <div class="timer-box">
-                <div class="timer-number">
-                    {hours:02d}
-                </div>
-                <div class="timer-label">
-                    Heures
-                </div>
-            </div>
+            <div class="orbit"></div>
+            <div class="orbit two"></div>
+            <div class="orbit three"></div>
 
-            <div class="timer-box">
-                <div class="timer-number">
-                    {minutes:02d}
-                </div>
-                <div class="timer-label">
-                    Minutes
-                </div>
-            </div>
-
-            <div class="timer-box">
-                <div class="timer-number">
-                    {secs:02d}
-                </div>
-                <div class="timer-label">
-                    Secondes
-                </div>
+            <div class="core">
+                <span>
+                    TED<b>x</b>
+                </span>
             </div>
 
         </div>
-        """,
-        unsafe_allow_html=True
-    )
 
+        <div class="hero-content">
 
-# =========================================================
-# HERO
-# =========================================================
+            {logo_html}
 
-def render_hero():
-
-    logo = render_logo()
-
-    st.markdown(
-        f"""
-        <div class="hero-wrap">
-
-            {logo}
+            <div class="eyebrow">
+                Ideas Worth Spreading
+            </div>
 
             <div class="hero-title">
-                TED<span>x</span> B'DARIJA
+                TED<span class="red">x</span><br>
+                B'DARIJA
             </div>
 
             <div class="hero-ar">
-                انضموا إلينا هذا العام
+                أكبر الأفكار كتبدأ من فكرة صغيرة.
             </div>
 
-            <div class="hero-small">
-                IDEAS WORTH SPREADING
+            <div class="hero-description">
+                Une scène pour les idées, les histoires
+                et les personnes qui veulent créer un impact.
+                Rejoignez TEDx B'DARIJA et faites partie
+                de cette expérience.
             </div>
 
-        </div>
-
-        <div class="floating-stage">
-
-            <div class="float-card float-one">
-                ✦ IDEAS
-            </div>
-
-            <div class="float-card float-two">
-                ⚡ PEOPLE
-            </div>
-
-            <div class="float-card float-three">
-                TEDx
+            <div style="margin-top:25px;">
+                <span class="live-badge">
+                    <span class="live-dot"></span>
+                    Inscriptions ouvertes
+                </span>
             </div>
 
         </div>
-        """,
-        unsafe_allow_html=True
-    )
 
-
-# =========================================================
-# REGISTRATION
-# =========================================================
-
-def registration_page():
+    </section>
+    """, unsafe_allow_html=True)
 
     st.markdown(
-        '<div class="premium-shell">',
+        '<div style="height:35px;"></div>',
         unsafe_allow_html=True
     )
 
-    render_hero()
+    # =====================================================
+    # FORM
+    # =====================================================
+
+    st.markdown("""
+    <div class="form-card">
+
+        <div class="section-kicker">
+            Registration
+        </div>
+
+        <div class="section-title">
+            Faites partie de l'expérience.
+        </div>
+
+        <div style="
+            color:#888;
+            margin-top:8px;
+            line-height:1.7;
+        ">
+            Complétez vos informations pour participer
+            à TEDx B'DARIJA.
+        </div>
+
+    </div>
+    """, unsafe_allow_html=True)
 
     render_countdown()
-
-    st.markdown(
-        """
-        <div class="section-heading">
-            Inscription
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
     with st.form(
         "registration_form",
         clear_on_submit=False
     ):
 
-        name = st.text_input(
-            "Nom et Prénom",
-            placeholder="Votre nom complet"
-        )
-
-        phone = st.text_input(
-            "Numéro WhatsApp",
-            placeholder="Ex: 0612345678"
-        )
-
-        st.caption(
-            "06 / 07 ou +212 — le numéro sera vérifié automatiquement."
+        st.markdown(
+            '<div style="height:10px;"></div>',
+            unsafe_allow_html=True
         )
 
         col1, col2 = st.columns(2)
 
         with col1:
 
-            major = st.text_input(
-                "Filière",
-                placeholder="Ex: SMI, Économie..."
+            name = st.text_input(
+                "Nom et Prénom",
+                placeholder="Votre nom complet"
             )
 
         with col2:
+
+            phone = st.text_input(
+                "Numéro WhatsApp",
+                placeholder="06 XX XX XX XX"
+            )
+
+        col3, col4 = st.columns(2)
+
+        with col3:
+
+            major = st.text_input(
+                "Filière",
+                placeholder="Ex: Informatique"
+            )
+
+        with col4:
 
             year = st.selectbox(
                 "Année",
@@ -1885,19 +1748,23 @@ def registration_page():
                     "2ème Année",
                     "3ème Année",
                     "4ème Année",
-                    "5ème Année",
+                    "5ème Année"
                 ]
             )
 
         photo = st.file_uploader(
-            "Photo — Visage clair",
+            "Photo — visage clair",
             type=[
                 "jpg",
                 "jpeg",
                 "png",
                 "webp"
-            ],
-            help="Photo claire du visage. Maximum 3 MB."
+            ]
+        )
+
+        st.caption(
+            "Formats acceptés : JPG, JPEG, PNG, WEBP • "
+            "Maximum 3 MB"
         )
 
         submitted = st.form_submit_button(
@@ -1906,7 +1773,7 @@ def registration_page():
 
         if submitted:
 
-            normalized = normalize_moroccan_phone(
+            normalized = normalize_phone(
                 phone
             )
 
@@ -1919,7 +1786,8 @@ def registration_page():
             elif not normalized:
 
                 st.error(
-                    "Veuillez entrer un numéro marocain valide."
+                    "Veuillez entrer un numéro "
+                    "WhatsApp marocain valide."
                 )
 
             elif not major.strip():
@@ -1940,10 +1808,10 @@ def registration_page():
                     "Veuillez ajouter votre photo."
                 )
 
-            elif photo.size > 3 * 1024 * 1024:
+            elif photo.size > MAX_PHOTO_SIZE:
 
                 st.error(
-                    "La photo est trop volumineuse. Maximum 3 MB."
+                    "La photo dépasse 3 MB."
                 )
 
             elif datetime.now() >= get_deadline():
@@ -1956,10 +1824,8 @@ def registration_page():
 
                 try:
 
-                    extension = (
-                        os.path.splitext(
-                            photo.name
-                        )[1].lower()
+                    extension = safe_filename(
+                        photo.name
                     )
 
                     filename = (
@@ -1977,9 +1843,9 @@ def registration_page():
                     with open(
                         photo_path,
                         "wb"
-                    ) as f:
+                    ) as file:
 
-                        f.write(
+                        file.write(
                             photo.getbuffer()
                         )
 
@@ -1992,51 +1858,86 @@ def registration_page():
                     )
 
                     st.success(
-                        "✓ Votre inscription a été enregistrée avec succès."
+                        "✓ Votre inscription a été "
+                        "enregistrée avec succès."
                     )
 
-                    st.balloons()
+                    st.session_state.success = True
 
-                except Exception as e:
+                    time.sleep(.5)
+
+                    st.rerun()
+
+                except Exception as error:
 
                     st.error(
-                        f"Erreur lors de l'inscription : {e}"
+                        f"Une erreur est survenue : {error}"
                     )
 
+    if st.session_state.success:
+
+        st.markdown("""
+        <div style="
+            margin-top:25px;
+            padding:22px;
+            border-radius:20px;
+            background:rgba(40,220,140,.06);
+            border:1px solid rgba(40,220,140,.18);
+            text-align:center;
+        ">
+
+            <div style="
+                font-size:1.3rem;
+                font-weight:900;
+                color:#55e6a0;
+            ">
+                Inscription confirmée ✓
+            </div>
+
+            <div style="
+                color:#888;
+                margin-top:7px;
+            ">
+                Merci d'avoir rejoint TEDx B'DARIJA.
+            </div>
+
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown(
+        '<div style="height:35px;"></div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        '<div style="text-align:center;">',
+        unsafe_allow_html=True
+    )
+
+    if st.button(
+        "🔒 Accès Administration",
+        key="admin_access"
+    ):
+
+        st.session_state.page = "login"
+        st.rerun()
+
     st.markdown(
         '</div>',
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        "<br>",
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        '<div class="admin-access">',
-        unsafe_allow_html=True
-    )
-
-    col1, col2, col3 = st.columns(
-        [1, 2, 1]
-    )
-
-    with col2:
-
-        if st.button(
-            "🔐  ACCÈS ADMINISTRATION",
-            key="open_admin"
-        ):
-
-            st.session_state.page = "login"
-
-            st.rerun()
-
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True
-    )
+    st.markdown("""
+    <div style="
+        text-align:center;
+        margin-top:35px;
+        color:#444;
+        font-size:.7rem;
+        letter-spacing:2px;
+    ">
+        TEDx B'DARIJA • IDEAS WORTH SPREADING
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # =========================================================
@@ -2045,55 +1946,74 @@ def registration_page():
 
 def login_page():
 
-    st.markdown(
-        '<div class="premium-shell">',
-        unsafe_allow_html=True
-    )
+    logo_html = ""
 
-    st.markdown(
-        '<div class="hero-wrap">',
-        unsafe_allow_html=True
-    )
+    if logo_b64:
 
-    st.markdown(
-        render_logo(),
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
+        logo_html = f"""
+        <img
+            src="data:image/jpeg;base64,{logo_b64}"
+            style="
+                width:80px;
+                height:80px;
+                object-fit:cover;
+                border-radius:22px;
+                margin-bottom:20px;
+            "
+        >
         """
-        <div class="admin-title">
-            Administration
-        </div>
 
-        <div style="
-            color:#666;
-            margin-top:8px;
-            font-size:.75rem;
-            letter-spacing:1px;
-        ">
-            ESPACE PRIVÉ • TEDx B'DARIJA
-        </div>
+    st.markdown(
+        f"""
+        <div class="login-card">
+
+            <div style="text-align:center;">
+
+                {logo_html}
+
+                <div style="
+                    color:#e62b1e;
+                    font-size:.7rem;
+                    font-weight:900;
+                    letter-spacing:3px;
+                    text-transform:uppercase;
+                ">
+                    Restricted Area
+                </div>
+
+                <div style="
+                    font-size:2rem;
+                    font-weight:900;
+                    margin-top:8px;
+                ">
+                    Admin Access
+                </div>
+
+                <div style="
+                    color:#777;
+                    margin-top:8px;
+                    font-size:.85rem;
+                ">
+                    TEDx B'DARIJA
+                </div>
+
+            </div>
+
         """,
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    with st.form("login_form"):
+    with st.form(
+        "admin_login"
+    ):
 
         email = st.text_input(
-            "Email",
-            placeholder="Email administrateur"
+            "Email"
         )
 
         password = st.text_input(
             "Mot de passe",
-            type="password",
-            placeholder="Mot de passe"
+            type="password"
         )
 
         submitted = st.form_submit_button(
@@ -2105,15 +2025,14 @@ def login_page():
             if (
                 email.strip().lower()
                 == ADMIN_EMAIL.lower()
-                and password
+                and
+                password
                 == ADMIN_PASSWORD
             ):
 
                 st.session_state.admin_logged = True
-
-                st.session_state.page = "admin"
-
                 st.session_state.login_error = False
+                st.session_state.page = "admin"
 
                 st.rerun()
 
@@ -2124,52 +2043,42 @@ def login_page():
     if st.session_state.login_error:
 
         st.error(
-            "Identifiants incorrects."
+            "Email ou mot de passe incorrect."
         )
 
-    st.markdown(
-        "<br>",
-        unsafe_allow_html=True
-    )
-
     if st.button(
-        "← Retour à l'inscription"
+        "← Retour"
     ):
 
-        st.session_state.page = "registration"
-
         st.session_state.login_error = False
+        st.session_state.page = "home"
 
         st.rerun()
 
     st.markdown(
-        '</div>',
+        "</div>",
         unsafe_allow_html=True
     )
 
 
 # =========================================================
-# PARTICIPANT CARD
+# ADMIN CARD
 # =========================================================
 
-def registration_card(row):
+def render_participant(row):
 
     photo_path = row["photo_path"]
 
-    st.markdown(
-        '<div class="participant-card">',
-        unsafe_allow_html=True
-    )
-
-    left, middle, right = st.columns(
-        [0.8, 3, 1.25]
+    left, center, right = st.columns(
+        [0.75, 3.1, 1.25]
     )
 
     with left:
 
         if (
             photo_path
-            and os.path.exists(photo_path)
+            and
+            os.path.exists(photo_path)
         ):
 
             st.image(
@@ -2190,89 +2099,85 @@ def registration_card(row):
                 <div style="
                     width:65px;
                     height:65px;
-                    border-radius:50%;
+                    border-radius:20px;
                     background:
                         linear-gradient(
                             145deg,
-                            #1b1b1b,
-                            #090909
+                            #181818,
+                            #080808
                         );
                     border:
-                        2px solid
-                        rgba(230,43,30,.55);
+                        1px solid
+                        rgba(230,43,30,.4);
                     display:flex;
                     align-items:center;
                     justify-content:center;
-                    font-size:22px;
-                    font-weight:900;
                     color:#e62b1e;
+                    font-size:1.5rem;
+                    font-weight:900;
                 ">
-                    {safe(initials.upper())}
+                    {html.escape(initials.upper())}
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-    with middle:
+    with center:
 
         st.markdown(
             f"""
-            <div class="name-text">
-                {safe(row["name"])}
+            <div class="participant-name">
+                {html.escape(row["name"])}
             </div>
 
-            <div class="small-text">
-                {safe(row["major"])}
-                •
-                {safe(row["year"])}
+            <div class="participant-meta">
+                {html.escape(row["major"])}
+                &nbsp; • &nbsp;
+                {html.escape(row["year"])}
             </div>
 
-            <div class="small-text">
-                📱 {safe(row["phone"])}
+            <div class="participant-meta">
+                📱 {html.escape(row["phone"])}
+            </div>
+
+            <div style="
+                color:#555;
+                font-size:.65rem;
+                margin-top:8px;
+            ">
+                Inscrit le
+                {format_date(row["created_at"])}
             </div>
             """,
             unsafe_allow_html=True
         )
 
-        try:
-
-            date = datetime.fromisoformat(
-                row["created_at"]
-            ).strftime(
-                "%d/%m/%Y • %H:%M"
-            )
-
-        except Exception:
-
-            date = "—"
-
-        st.caption(
-            f"Inscrit le {date}"
-        )
-
     with right:
 
-        phone = row["phone"]
-
-        wa_number = phone.replace(
+        number = row["phone"].replace(
             "+",
             ""
         )
 
-        wa_url = (
-            f"https://wa.me/{wa_number}"
+        whatsapp_url = (
+            f"https://wa.me/{number}"
         )
 
         st.markdown(
             f"""
             <a
-                href="{wa_url}"
+                href="{whatsapp_url}"
                 target="_blank"
-                class="wa-button"
+                class="wa"
             >
                 🟢 WhatsApp
             </a>
             """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            '<div style="height:8px;"></div>',
             unsafe_allow_html=True
         )
 
@@ -2287,49 +2192,6 @@ def registration_card(row):
 
             st.rerun()
 
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-
-# =========================================================
-# CSV
-# =========================================================
-
-def create_csv(rows):
-
-    output = io.StringIO()
-
-    writer = csv.writer(
-        output,
-        delimiter=";",
-        quoting=csv.QUOTE_ALL
-    )
-
-    writer.writerow([
-        "Nom et prénom",
-        "WhatsApp",
-        "Filière",
-        "Année",
-        "Date"
-    ])
-
-    for row in rows:
-
-        writer.writerow([
-            row["name"],
-            row["phone"],
-            row["major"],
-            row["year"],
-            row["created_at"]
-        ])
-
-    return (
-        "\ufeff"
-        + output.getvalue()
-    )
-
 
 # =========================================================
 # ADMIN DASHBOARD
@@ -2343,56 +2205,67 @@ def admin_dashboard():
 
         st.rerun()
 
-    registrations = get_registrations()
+        return
 
-    total = len(registrations)
+    rows = get_registrations()
+
+    total = len(rows)
 
     majors = set(
-        r["major"].strip().lower()
-        for r in registrations
-        if r["major"]
-    )
-
-    last_registration = (
-        registrations[0]["created_at"]
-        if registrations
-        else None
+        row["major"].strip().lower()
+        for row in rows
+        if row["major"]
     )
 
     deadline = get_deadline()
 
-    # -----------------------------------------------------
-    # TOP
-    # -----------------------------------------------------
-
     st.markdown(
-        '<div class="premium-shell">',
+        '<div class="admin-shell">',
         unsafe_allow_html=True
     )
 
+    # =====================================================
+    # TOP BAR
+    # =====================================================
+
     top1, top2 = st.columns(
-        [3, 1]
+        [4, 1]
     )
 
     with top1:
 
-        st.markdown(
-            """
-            <div class="admin-title">
+        st.markdown("""
+        <div>
+
+            <div style="
+                color:#e62b1e;
+                font-size:.7rem;
+                font-weight:900;
+                letter-spacing:3px;
+                text-transform:uppercase;
+            ">
                 TEDx B'DARIJA
-                <span style="color:#e62b1e">
-                    /
-                </span>
-                Dashboard
             </div>
 
-            <div class="admin-online">
-                <span class="online-dot"></span>
-                SYSTÈME ACTIF • BASE DE DONNÉES CONNECTÉE
+            <div style="
+                font-size:2.3rem;
+                font-weight:900;
+                letter-spacing:-2px;
+                margin-top:5px;
+            ">
+                Command Center
             </div>
-            """,
-            unsafe_allow_html=True
-        )
+
+            <div style="
+                color:#777;
+                margin-top:5px;
+                font-size:.8rem;
+            ">
+                Gestion des participants et inscriptions
+            </div>
+
+        </div>
+        """, unsafe_allow_html=True)
 
     with top2:
 
@@ -2402,19 +2275,18 @@ def admin_dashboard():
         ):
 
             st.session_state.admin_logged = False
-
-            st.session_state.page = "registration"
+            st.session_state.page = "home"
 
             st.rerun()
 
     st.markdown(
-        "<br>",
+        '<div style="height:25px;"></div>',
         unsafe_allow_html=True
     )
 
-    # -----------------------------------------------------
+    # =====================================================
     # STATS
-    # -----------------------------------------------------
+    # =====================================================
 
     c1, c2, c3, c4 = st.columns(4)
 
@@ -2458,23 +2330,13 @@ def admin_dashboard():
 
     with c3:
 
-        if last_registration:
-
-            try:
-
-                dt = datetime.fromisoformat(
-                    last_registration
-                ).strftime(
-                    "%d/%m/%Y %H:%M"
-                )
-
-            except Exception:
-
-                dt = "—"
-
-        else:
-
-            dt = "—"
+        latest = (
+            format_date(
+                rows[0]["created_at"]
+            )
+            if rows
+            else "—"
+        )
 
         st.markdown(
             f"""
@@ -2485,11 +2347,11 @@ def admin_dashboard():
                 </div>
 
                 <div style="
-                    font-size:.92rem;
+                    margin-top:14px;
+                    font-size:.9rem;
                     font-weight:800;
-                    margin-top:16px;
                 ">
-                    {dt}
+                    {latest}
                 </div>
 
             </div>
@@ -2508,12 +2370,20 @@ def admin_dashboard():
                 </div>
 
                 <div style="
-                    color:#ff5146;
+                    margin-top:14px;
+                    color:#ff655d;
                     font-size:.9rem;
                     font-weight:800;
-                    margin-top:16px;
                 ">
-                    {deadline.strftime("%d/%m/%Y %H:%M")}
+                    {deadline.strftime("%d/%m/%Y")}
+                </div>
+
+                <div style="
+                    color:#666;
+                    font-size:.7rem;
+                    margin-top:3px;
+                ">
+                    {deadline.strftime("%H:%M")}
                 </div>
 
             </div>
@@ -2521,17 +2391,17 @@ def admin_dashboard():
             unsafe_allow_html=True
         )
 
-    # -----------------------------------------------------
-    # DEADLINE
-    # -----------------------------------------------------
+    # =====================================================
+    # SETTINGS
+    # =====================================================
 
     st.markdown(
-        "<br>",
+        '<div style="height:25px;"></div>',
         unsafe_allow_html=True
     )
 
     with st.expander(
-        "⚙️  GESTION DE LA DEADLINE"
+        "⚙️ Paramètres des inscriptions"
     ):
 
         d1, d2 = st.columns(2)
@@ -2539,14 +2409,14 @@ def admin_dashboard():
         with d1:
 
             new_date = st.date_input(
-                "Date",
+                "Date limite",
                 value=deadline.date()
             )
 
         with d2:
 
             new_time = st.time_input(
-                "Heure",
+                "Heure limite",
                 value=deadline.time().replace(
                     second=0,
                     microsecond=0
@@ -2571,8 +2441,11 @@ def admin_dashboard():
 
             else:
 
-                save_deadline(
-                    new_deadline
+                save_setting(
+                    "deadline",
+                    new_deadline.isoformat(
+                        timespec="minutes"
+                    )
                 )
 
                 st.success(
@@ -2581,12 +2454,12 @@ def admin_dashboard():
 
                 st.rerun()
 
-    # -----------------------------------------------------
+    # =====================================================
     # ACTIONS
-    # -----------------------------------------------------
+    # =====================================================
 
     st.markdown(
-        "<br>",
+        '<div style="height:15px;"></div>',
         unsafe_allow_html=True
     )
 
@@ -2603,28 +2476,25 @@ def admin_dashboard():
 
     with a2:
 
-        csv_data = create_csv(
-            registrations
-        )
-
         st.download_button(
             "📥 Exporter CSV",
-            data=csv_data,
+            data=create_csv(rows),
             file_name=(
-                "tedx-bdarija-"
+                "TEDx_BDARija_"
                 + datetime.now().strftime(
                     "%Y-%m-%d"
                 )
                 + ".csv"
             ),
-            mime="text/csv"
+            mime="text/csv",
+            key="csv"
         )
 
     with a3:
 
         if st.button(
-            "🗑️ Vider les inscriptions",
-            key="clear_all"
+            "🗑️ Vider la base",
+            key="clear"
         ):
 
             st.session_state.confirm_clear = True
@@ -2632,58 +2502,58 @@ def admin_dashboard():
     if st.session_state.confirm_clear:
 
         st.warning(
-            "Cette action supprimera toutes les inscriptions."
+            "Toutes les inscriptions seront supprimées."
         )
 
-        x1, x2 = st.columns(2)
+        y, n = st.columns(2)
 
-        with x1:
+        with y:
 
             if st.button(
                 "Oui, supprimer tout",
-                key="confirm_delete"
+                key="confirm"
             ):
 
-                delete_all_registrations()
+                clear_registrations()
 
                 st.session_state.confirm_clear = False
 
                 st.success(
-                    "Toutes les inscriptions ont été supprimées."
+                    "Base nettoyée."
                 )
 
                 st.rerun()
 
-        with x2:
+        with n:
 
             if st.button(
                 "Annuler",
-                key="cancel_delete"
+                key="cancel"
             ):
 
                 st.session_state.confirm_clear = False
 
                 st.rerun()
 
-    # -----------------------------------------------------
+    # =====================================================
     # SEARCH
-    # -----------------------------------------------------
+    # =====================================================
 
     st.markdown(
-        "<br>",
+        '<div style="height:20px;"></div>',
         unsafe_allow_html=True
     )
 
     search = st.text_input(
-        "🔎 Rechercher un participant",
-        placeholder="Nom, WhatsApp, filière ou année..."
+        "🔎 Recherche participant",
+        placeholder="Nom • WhatsApp • filière • année..."
     )
 
     filtered = []
 
     query = search.strip().lower()
 
-    for row in registrations:
+    for row in rows:
 
         if not query:
 
@@ -2691,31 +2561,46 @@ def admin_dashboard():
 
             continue
 
-        combined = " ".join([
+        searchable = " ".join([
             str(row["name"] or ""),
             str(row["phone"] or ""),
             str(row["major"] or ""),
             str(row["year"] or "")
         ]).lower()
 
-        if query in combined:
+        if query in searchable:
 
             filtered.append(row)
 
-    # -----------------------------------------------------
+    # =====================================================
     # PARTICIPANTS
-    # -----------------------------------------------------
+    # =====================================================
 
     st.markdown(
         f"""
-        <div class="section-heading">
-            Participants
-            <span style="
-                color:#e62b1e;
-                font-size:.8rem;
+        <div style="
+            margin-top:25px;
+            margin-bottom:15px;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+        ">
+
+            <div style="
+                font-size:1.4rem;
+                font-weight:900;
             ">
-                {len(filtered)}
-            </span>
+                Participants
+            </div>
+
+            <div style="
+                color:#e62b1e;
+                font-weight:900;
+                font-size:.9rem;
+            ">
+                {len(filtered)} résultat(s)
+            </div>
+
         </div>
         """,
         unsafe_allow_html=True
@@ -2724,12 +2609,22 @@ def admin_dashboard():
     if not filtered:
 
         st.info(
-            "Aucune inscription trouvée."
+            "Aucun participant trouvé."
         )
 
     for row in filtered:
 
-        registration_card(row)
+        st.markdown(
+            '<div class="participant">',
+            unsafe_allow_html=True
+        )
+
+        render_participant(row)
+
+        st.markdown(
+            '</div>',
+            unsafe_allow_html=True
+        )
 
     st.markdown(
         '</div>',
@@ -2741,9 +2636,9 @@ def admin_dashboard():
 # ROUTER
 # =========================================================
 
-if st.session_state.page == "registration":
+if st.session_state.page == "home":
 
-    registration_page()
+    home_page()
 
 elif st.session_state.page == "login":
 
@@ -2752,3 +2647,9 @@ elif st.session_state.page == "login":
 elif st.session_state.page == "admin":
 
     admin_dashboard()
+
+else:
+
+    st.session_state.page = "home"
+
+    st.rerun()
