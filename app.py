@@ -26,8 +26,9 @@ DB_PATH = "tedx_bdarija.db"
 UPLOAD_DIR = "uploads"
 LOGO_PATH = "tedx-bdarija-logo.png.jpg"
 
-ADMIN_EMAIL = "outhmane@farah.love"
-ADMIN_PASSWORD = "oufa@2026@!"
+# Sécurisation des identifiants admin avec st.secrets (avec fallback pour le test local)
+ADMIN_EMAIL = st.secrets.get("ADMIN_EMAIL", "outhmane@farah.love")
+ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "oufa@2026@!")
 
 MAX_PHOTO_SIZE = 3 * 1024 * 1024
 
